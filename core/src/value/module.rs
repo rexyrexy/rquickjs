@@ -406,6 +406,37 @@ impl<'js, Evaluated> Module<'js, Evaluated> {
         Ok(obj)
     }
 
+    /// Write object bytecode for the module.
+    ///
+    /// `swap_endianess` swaps the endianness of the bytecode, if true, from native to the other
+    /// kind. Use if the bytecode is meant for a target with a different endianness than the
+    /// current.
+    pub fn write_strip(&self, swap_endianess: bool) -> Result<Vec<u8>> {
+        let ctx = &self.ctx;
+        let mut len = MaybeUninit::uninit();
+        // TODO: Allow inclusion of other flags?
+        let mut flags = qjs::JS_WRITE_OBJ_BYTECODE | qjs::JS_WRITE_OBJ_STRIP_SOURCE | qjs::JS_WRITE_OBJ_STRIP_DEBUG;
+        if swap_endianess {
+            flags |= qjs::JS_WRITE_OBJ_BSWAP;
+        }
+        let buf = unsafe {
+            qjs::JS_WriteObject(
+                ctx.as_ptr(),
+                len.as_mut_ptr(),
+                qjs::JS_MKPTR(qjs::JS_TAG_MODULE, self.ptr.as_ptr().cast()),
+                flags as i32,
+            )
+        };
+        if buf.is_null() {
+            return Err(ctx.raise_exception());
+        }
+        let len = unsafe { len.assume_init() };
+        let obj = unsafe { slice::from_raw_parts(buf, len as _) };
+        let obj = Vec::from(obj);
+        unsafe { qjs::js_free(ctx.as_ptr(), buf as _) };
+        Ok(obj)
+    }
+
     /// Return the `import.meta` object of a module
     pub fn meta(&self) -> Result<Object<'js>> {
         unsafe {
